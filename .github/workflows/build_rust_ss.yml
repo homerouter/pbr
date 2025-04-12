@@ -11,10 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Build shadowsocks-rust on OpenBSD
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: build-rust
-
       - name: Start OpenBSD VM
         id: openbsd-vm
         uses: vmactions/openbsd-vm@v1
@@ -25,15 +21,14 @@ jobs:
           sync: rsync
           prepare: |
             pkg_add -u
-            pkg_add python3 gmake git curl cmake bash ggrep gdb libffi ccache ninja
+            pkg_add python-3.11 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
           envs: 'HOME PATH'
 
-      - name: Install Rust 1.85.0
+      - name: Verify Rust Installation
         shell: openbsd {0}
         run: |
-          cd $GITHUB_WORKSPACE/build-rust
-          chmod +x build_rust
-          ./build_rust stable
+          rustc --version
+          cargo --version
         env:
           SUDO: doas
 
@@ -47,8 +42,6 @@ jobs:
       - name: Build shadowsocks-rust
         shell: openbsd {0}
         run: |
-          export PATH="$GITHUB_WORKSPACE/install_dir/stable/bin:$PATH"
-          export RUSTC="$GITHUB_WORKSPACE/install_dir/stable/bin/rustc"
           cd shadowsocks-rust
           cargo build --release
 
