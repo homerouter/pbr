@@ -1,0 +1,575 @@
+#!/bin/ksh -eu
+#
+#  Copyright (c) 2017-2025 Sebastien Marie <semarie@kapouay.eu.org>
+# 
+#  Permission to use, copy, modify, and distribute this software for any
+#  purpose with or without fee is hereby granted, provided that the above
+#  copyright notice and this permission notice appear in all copies.
+# 
+#  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+#  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+#  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+#  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+#  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+#  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+PATH=/bin:/usr/bin:/usr/sbin:/usr/local/bin
+
+build_rust="$0"
+
+if [[ $# -eq 0 ]]; then
+    echo "usage: $0 target command" >&2
+    "${build_rust}" help
+    exit 1
+fi
+
+[[ -n ${DEBUG:-} ]] && set -x
+
+# load default variables
+[[ -r "${HOME}/.build_rust.conf" ]] \
+    && . "${HOME}/.build_rust.conf"
+
+# default variables
+distfiles_rustc_base="${distfiles_rustc_base:-https://static.rust-lang.org/dist}"
+build_dir="${build_dir:-build_dir}"
+install_dir="${install_dir:-install_dir}"
+SUDO="${SUDO:-}"
+ccache="${ccache:-yes}"
+llvm_config="${llvm_config:-no}"
+CFLAGS="${CFLAGS:--O2 -pipe}"
+rust_base_dir="${rust_base_dir:-}"
+# NEW: Define stable version
+stable_version="${stable_version:-1.85.0}"
+
+def_MAKE_JOBS=$(sysctl -n hw.ncpuonline)
+MAKE_JOBS=${MAKE_JOBS:-${def_MAKE_JOBS}}
+
+# practical variables (based on user-defined ones)
+dist_dir="${install_dir}/dist"
+crates_dir="${install_dir}/crates"
+
+# use canonicalize version
+mkdir -p "${install_dir}" "${build_dir}" "${dist_dir}" "${crates_dir}"
+build_dir=$(readlink -fn "${build_dir}")
+install_dir=$(readlink -fn "${install_dir}")
+dist_dir=$(readlink -fn "${dist_dir}")
+crates_dir=$(readlink -fn "${crates_dir}")
+
+# cargo configuration
+CARGO_HOME="${crates_dir}"
+LIBSSH2_SYS_USE_PKG_CONFIG=1
+LIBGIT2_SYS_USE_PKG_CONFIG=1
+VERBOSE=${VERBOSE:-1}
+RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+export CARGO_HOME LIBSSH2_SYS_USE_PKG_CONFIG LIBGIT2_SYS_USE_PKG_CONFIG VERBOSE CFLAGS RUST_BACKTRACE
+
+case $(arch -s) in
+i386)
+    triple_arch='i686-unknown-openbsd'
+    ;;
+amd64)
+    triple_arch='x86_64-unknown-openbsd'
+    ;;
+*)
+    echo "error: unsupported arch" >&2
+    exit 1
+    ;;
+esac
+
+log() {
+    echo "`date`: ${@}"
+}
+
+refetch() {
+    local message="$1"
+    local url="$2"
+    local file="$3"
+
+    # get ETag of remote file
+    local new_etag=$(curl -s -L -I "${url}" | sed -ne 's/[Ee][Tt]ag: //p')
+
+    # refetch only if ETag changed
+    if [[ ! -e "${file}" || \
+        -z "${new_etag}" || \
+        ! -e "${file}.etag" || \
+        $(cat "${file}.etag") != "${new_etag}" \
+        ]]; then
+
+        log "fetching (cache miss): ${message}"
+        curl -L -o "${file}" "${url}"
+    else
+        log "fetching (cache hit): ${message}"
+    fi
+
+    # save the new ETag
+    echo "${new_etag}" > "${file}.etag"
+}
+
+# get target and check it
+target="$1"
+shift
+
+case "${target}" in
+beta|nightly|stable)  # MODIFIED: Added stable target
+    # print timestamp
+    [[ -z "${_recursive:-}" ]] && log "target: ${target} - ${triple_arch}"
+    _recursive=1
+    export _recursive
+    ;;
+help)
+    echo "available commands:"
+    sed -ne 's/^\([a-z].*\))	*# \(.*\)$/ - \1:	\2/p' <$0
+    exit 0
+    ;;
+init)
+    ;;
+*)
+    echo "error: invalid target" >&2
+    exit 1
+esac
+
+# source dir
+# MODIFIED: Use version-specific source dir for stable
+if [[ "${target}" == "stable" ]]; then
+    rustc_xdir="${build_dir}/rustc-${stable_version}-src"
+else
+    rustc_xdir="${build_dir}/rustc-${target}-src"
+fi
+
+# get command
+if [[ $# -eq 0 ]]; then
+    # build the target
+    command="${target}"
+else
+    command="$1"
+    shift
+fi
+
+case "${command}" in
+init)	# install some required packages (using pkg_add)
+    if [[ ${llvm_config} != "no" ]]; then
+        _llvm='llvm'
+    else
+        _llvm='ninja'
+    fi
+
+    if [[ ${ccache} != "yes" ]]; then
+        _ccache=''
+    else
+        _ccache='ccache'
+    fi
+
+    exec ${SUDO} pkg_add -aU 'python3' 'gmake' 'git' \
+        'curl' 'cmake' 'bash' 'ggrep' 'gdb' 'libffi' \
+        ${_ccache} \
+        ${_llvm}
+    ;;
+fetch)	# fetch rust version
+    mkdir -p -- "${dist_dir}"
+    # MODIFIED: Fetch stable version-specific tarballs
+    if [[ "${target}" == "stable" ]]; then
+        refetch "rustc-${stable_version}-src.tar.gz" \
+            "${distfiles_rustc_base}/rustc-${stable_version}-src.tar.gz" \
+            "${dist_dir}/rustc-${stable_version}-src.tar.gz"
+        # Fetch additional components
+        for _c in rustc rust-std cargo rustfmt; do
+            refetch "${_c}-${stable_version}-${triple_arch}.tar.gz" \
+                "${distfiles_rustc_base}/${_c}-${stable_version}-${triple_arch}.tar.gz" \
+                "${dist_dir}/${_c}-${stable_version}-${triple_arch}.tar.gz"
+        done
+    else
+        refetch "rustc-${target}-src.tar.gz" \
+            "${distfiles_rustc_base}/rustc-${target}-src.tar.gz" \
+            "${dist_dir}/rustc-${target}-src.tar.gz"
+    fi
+    ;;
+extract)	# extract rust version from dist_dir to build_dir
+    "${build_rust}" "${target}" fetch
+
+    if [[ -d "${rustc_xdir}" ]]; then
+        log "removing ${rustc_xdir}"
+        rm -rf -- "${rustc_xdir}"
+    fi
+    mkdir -p -- "${build_dir}"
+
+    # MODIFIED: Extract version-specific tarball for stable
+    if [[ "${target}" == "stable" ]]; then
+        log "extracting rustc-${stable_version}-src.tar.gz"
+        exec tar zxf "${dist_dir}/rustc-${stable_version}-src.tar.gz" -C "${build_dir}"
+    else
+        log "extracting rustc-${target}-src.tar.gz"
+        exec tar zxf "${dist_dir}/rustc-${target}-src.tar.gz" -C "${build_dir}"
+    fi
+    ;;
+patch)	# apply local patches
+    [[ ! -d "${rustc_xdir}" ]] && \
+        "${build_rust}" "${target}" extract
+
+    log "patching ${target}"
+
+    ## bootstrap: create an empty .gitmodules file
+    touch "${rustc_xdir}/.gitmodules"
+
+    ## bootstrap: pass optimization flags: https://github.com/rust-lang/rust/issues/39900
+    echo 'patching: bootstrap: pass optimization flags'
+    if [ -r "${rustc_xdir}/src/bootstrap/lib.rs" ] ; then
+        # old
+        sed -i 's/.*|s| !s.starts_with("-O") && !s.starts_with("\/O").*//' "${rustc_xdir}/src/bootstrap/lib.rs"
+    else
+        # new
+        sed -i 's/.*|s| !s.starts_with("-O") && !s.starts_with("\/O").*//' "${rustc_xdir}/src/bootstrap/src/lib.rs"
+    fi
+
+    ## openssl-sys: libressl in -current isn't explicitly supported
+    echo "patching: openssl-sys: libressl in -current isn't explicitly supported"
+    sed -i -e "/ => ('.', '.'),/h" \
+        -e "/ => ('.', '.', '.'),/h" \
+        -e "/_ => version_error(),/{g; s/(.*) =>/_ =>/; }" \
+        "${rustc_xdir}/vendor/openssl-sys"*"/build/main.rs"
+    sed -i 's/"files":{[^}]*}/"files":{}/' "${rustc_xdir}/vendor/openssl-sys"*"/.cargo-checksum.json"
+
+    # MODIFIED: Skip filetime patch (not needed for 1.85)
+    # libffi-sys: force system-wide libffi use
+    if [ -f "${rustc_xdir}/vendor/libffi-sys"*"/Cargo.toml" ]; then
+        echo "patching: libffi-sys: force system-wide libffi use"
+        sed -i '/\[features\]/a\
+default = \["system"\]
+' "${rustc_xdir}/vendor/libffi-sys"*"/Cargo.toml"
+        sed -i 's/pub fn probe_and_link() {/& println!("cargo:rustc-link-search=native=\/usr\/local\/lib");/' "${rustc_xdir}/vendor/libffi-sys"*"/build/not_msvc.rs"
+        sed -i 's/"files":{[^}]*}/"files":{}/' "${rustc_xdir}/vendor/libffi-sys"*"/.cargo-checksum.json"
+    fi
+
+    # MODIFIED: Skip libc++ and libcompiler_rt patches (not needed for 1.85)
+    # use ninja for building binaryen (if applicable)
+    if [ -f "${rustc_xdir}/src/librustc_binaryen/build.rs" ]; then
+        echo "patching: use ninja for building binaryen"
+        sed -i '/\.build_target("binaryen")$/s/$/.generator("Ninja")/' "${rustc_xdir}/src/librustc_binaryen/build.rs"
+    fi
+
+    ## llvm: properly parse library suffixes on OpenBSD
+    echo "patching: llvm: properly parse library suffixes on OpenBSD"
+    sed -i -e 's/suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES}/suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES} ".so.[0-9]+.[0-9]+"/' \
+        "${rustc_xdir}/src/llvm-project/llvm/cmake/modules/GetLibraryName.cmake"
+
+    exit 0
+    ;;
+rustbuild)	# rustbuild wrapper
+    [[ ! -r "${rustc_xdir}/.configure-${target}" ]] \
+        && "${build_rust}" "${target}" configure
+
+    # remove .cargo directory
+    rm -rf -- "${build_dir}/.cargo"
+
+    log "starting rustbuild ${@}"
+    ulimit -c 0
+    ulimit -d `ulimit -dH`
+    cd "${rustc_xdir}" && exec env \
+        PATH="${build_dir}/bin:${PATH}" \
+        "python3" "${rustc_xdir}/x.py" \
+            "--config" "${build_dir}/config.toml" \
+            "--build-dir" "${build_dir}/build" \
+            "$@"
+    ;;
+clean)	# run rustbuild clean (do not remove llvm)
+    [[ ! -d "${build_dir}/build" \
+        || ! -r "${rustc_xdir}/.configure-${target}" \
+        ]] && exit 0
+
+    exec "${build_rust}" "${target}" rustbuild clean
+    ;;
+clean-all)	# remove build_dir
+    log "cleaning ${build_dir}"
+    exec rm -rf -- "${build_dir}"
+    ;;
+pre-configure)
+    # create bin directory wrapper
+    mkdir -p "${build_dir}/bin"
+    for _p in cc c++; do
+        if [[ "${ccache}" != "yes" ]]; then
+            ln -fs "/usr/bin/${_p}" "${build_dir}/bin/${_p}"
+        else
+            rm -f "${build_dir}/bin/${_p}" || true
+            echo '#!/bin/sh' >"${build_dir}/bin/${_p}"
+            echo "exec ccache /usr/bin/${_p} \"\${@}\"" \
+                >>"${build_dir}/bin/${_p}"
+            chmod 755 "${build_dir}/bin/${_p}"
+        fi
+    done
+
+    ln -fs "cc" "${build_dir}/bin/gcc"
+    ln -fs "c++" "${build_dir}/bin/g++"
+
+    ln -fs "cc" "${build_dir}/bin/clang"
+    ln -fs "c++" "${build_dir}/bin/clang++"
+    ;;
+configure)	# configure target
+    "${build_rust}" "${target}" pre-configure
+
+    # configure target dependent stuff
+    case "${target}" in
+    beta)
+        if [[ -z "${rust_base_dir}" ]]; then
+            rust_base_dir="/usr/local"
+        fi
+        # install rustc-stable
+        if [[ ! -x "${rust_base_dir}/bin/rustc" ]]; then
+            log "installing rustc-stable (from ports)"
+            ${SUDO} pkg_add -a rust
+        fi
+        if [[ ! -x "${rust_base_dir}/bin/rustfmt" ]]; then
+            log "installing rustfmt-stable (from ports)"
+            ${SUDO} pkg_add -a rust-rustfmt
+        fi
+        ;;
+    nightly)
+        if [[ -z "${rust_base_dir}" ]]; then
+            rust_base_dir="${install_dir}/beta"
+        fi
+        # install rustc-beta
+        "${build_rust}" beta
+        ;;
+    stable)
+        if [[ -z "${rust_base_dir}" ]]; then
+            rust_base_dir="/usr/local"
+        fi
+        # NEW: For stable, use system rustc if available or install
+        if [[ ! -x "${rust_base_dir}/bin/rustc" ]]; then
+            log "installing rustc-stable (from ports)"
+            ${SUDO} pkg_add -a rust
+        fi
+        ;;
+    esac
+
+    # require source tree
+    [[ ! -r "${rustc_xdir}/x.py" ]] \
+        && "${build_rust}" "${target}" patch
+
+    # print information on current build
+    log "info: building: $(cat ${rustc_xdir}/version)"
+    log "info: required stage0:"
+    grep "^compiler_" "${rustc_xdir}/src/stage0"
+    log "info: rustc -vV"
+    "${rust_base_dir}/bin/rustc" -vV | sed 's/^/	/'
+    log "info: cargo -vV"
+    "${rust_base_dir}/bin/cargo" -vV | sed 's/^/	/'
+    log "info: rustfmt -V"
+    "${rust_base_dir}/bin/rustfmt" -V | sed 's/^/	/'
+
+    # llvm stuff
+    if [[ ${llvm_config} != "no" ]]; then
+        _llvm='llvm-config'
+    else
+        _llvm='#llvm-config'
+    fi
+
+    # generate config file
+    mkdir -p "${build_dir}"
+    # MODIFIED: Set channel to stable for stable target
+    _channel="${target}"
+    [[ "${target}" == "stable" ]] && _channel="stable"
+    cat >"${build_dir}/config.toml" <<EOF
+change-id = 116881
+
+[build]
+rustc = "${rust_base_dir}/bin/rustc"
+cargo = "${rust_base_dir}/bin/cargo"
+rustfmt = "${rust_base_dir}/bin/rustfmt"
+python = "/usr/local/bin/python3"
+gdb = "/usr/local/bin/egdb"
+#docs = false
+vendor = true
+extended = true
+verbose = ${VERBOSE:-0}
+
+[install]
+prefix = "${install_dir}/${target}"
+
+[dist]
+src-tarball = false
+
+[rust]
+channel = "${_channel}"
+codegen-tests = false
+verbose-tests = true
+
+[target.${triple_arch}]
+${_llvm} = "${llvm_config}"
+
+[llvm]
+static-libstdcpp = false
+ninja = true
+EOF
+
+    exec touch "${rustc_xdir}/.configure-${target}"
+    ;;
+build)	# invoke rustbuild for making dist files
+    # make build
+    "${build_rust}" "${target}" rustbuild dist --jobs=${MAKE_JOBS} \
+        rust-std rustc cargo clippy rustfmt
+
+    # copy distfiles
+    log "copying ${target} distfiles to ${dist_dir}"
+    mkdir -p "${dist_dir}"
+    # MODIFIED: Handle stable version-specific distfiles
+    if [[ "${target}" == "stable" ]]; then
+        for _c in rustc rust-std cargo rustfmt; do
+            _f="${build_dir}/build/dist/${_c}-${stable_version}-${triple_arch}.tar.gz"
+            ln -f "${_f}" "${dist_dir}/${_c}-${stable_version}-${triple_arch}.tar.gz" \
+                || cp -f "${_f}" "${dist_dir}/${_c}-${stable_version}-${triple_arch}.tar.gz"
+        done
+    else
+        for _c in rustc rust-std cargo rustfmt; do
+            _f="${build_dir}/build/dist/${_c}-${target}-${triple_arch}.tar.gz"
+            ln -f "${_f}" "${dist_dir}" \
+                || cp -f "${_f}" "${dist_dir}"
+        done
+    fi
+    ;;
+install)	# install sets
+    # install rustc and required sets
+    # MODIFIED: Handle stable version-specific installs
+    if [[ "${target}" == "stable" ]]; then
+        for _c in rustc rust-std cargo rustfmt; do
+            log "installing ${_c}-${stable_version}"
+            if [[ ! -r "${dist_dir}/${_c}-${stable_version}-${triple_arch}.tar.gz" ]]; then
+                echo "error: missing ${_c}-${stable_version}-${triple_arch}.tar.gz" >&2
+                exit 1
+            fi
+            tmpdir=`mktemp -d -p "${install_dir}" "rust-${stable_version}.XXXXXX"` \
+                || exit 1
+            tar zxf "${dist_dir}/${_c}-${stable_version}-${triple_arch}.tar.gz" \
+                -C "${tmpdir}"
+            bash "${tmpdir}/${_c}-${stable_version}-${triple_arch}/install.sh" \
+                --prefix="${install_dir}/${target}"
+            rm -rf -- "${tmpdir}"
+        done
+    else
+        for _c in rustc rust-std cargo rustfmt; do
+            log "installing ${_c}-${target}"
+            if [[ ! -r "${dist_dir}/${_c}-${target}-${triple_arch}.tar.gz" ]]; then
+                echo "error: missing ${_c}-${target}-${triple_arch}.tar.gz" >&2
+                exit 1
+            fi
+            tmpdir=`mktemp -d -p "${install_dir}" "rust-${target}.XXXXXX"` \
+                || exit 1
+            tar zxf "${dist_dir}/${_c}-${target}-${triple_arch}.tar.gz" \
+                -C "${tmpdir}"
+            bash "${tmpdir}/${_c}-${target}-${triple_arch}/install.sh" \
+                --prefix="${install_dir}/${target}"
+            rm -rf -- "${tmpdir}"
+        done
+    fi
+    ;;
+beta|nightly|stable)	# prepare a release
+    mkdir -p "${install_dir}/${target}"
+
+    "${build_rust}" "${target}" fetch
+
+    # MODIFIED: Check for up-to-date stable version
+    if [[ "${target}" == "stable" ]]; then
+        if [[ -z "${REBUILD:-}" && \
+            -x "${install_dir}/${target}/bin/rustc" && \
+            -r "${dist_dir}/rustc-${stable_version}-src.tar.gz" && \
+            "${install_dir}/${target}/bin/rustc" -nt \
+            "${dist_dir}/rustc-${stable_version}-src.tar.gz" ]]; then
+            log "already up-to-date: ${target} ${stable_version}"
+            exit 0
+        fi
+    else
+        if [[ -z "${REBUILD:-}" && \
+            -x "${install_dir}/${target}/bin/rustc" && \
+            -r "${dist_dir}/rustc-${target}-src.tar.gz" && \
+            "${install_dir}/${target}/bin/rustc" -nt \
+            "${dist_dir}/rustc-${target}-src.tar.gz" ]]; then
+            log "already up-to-date: ${target}"
+            exit 0
+        fi
+    fi
+
+    (
+    "${build_rust}" "${target}" clean \
+        || "${build_rust}" "${target}" clean-all
+    "${build_rust}" "${target}" extract
+    "${build_rust}" "${target}" patch
+    "${build_rust}" "${target}" configure
+    "${build_rust}" "${target}" build
+    "${build_rust}" "${target}" install
+    ) 2>&1 | tee "${install_dir}/${target}/build.log"
+
+    # ensure it has been installed
+    # MODIFIED: Check stable version installation
+    if [[ "${target}" == "stable" ]]; then
+        if [[ -x "${install_dir}/${target}/bin/rustc" && \
+            -r "${dist_dir}/rustc-${stable_version}-src.tar.gz" && \
+            "${install_dir}/${target}/bin/rustc" -nt \
+            "${dist_dir}/rustc-${stable_version}-src.tar.gz" ]]; then
+            log "task finished successfully: keeping build.log -> build-good.log"
+            exec cp -f "${install_dir}/${target}/build.log" "${install_dir}/${target}/build-good.log"
+        else
+            log "task not finished: see build.log for detail"
+            exit 1
+        fi
+    else
+        if [[ -x "${install_dir}/${target}/bin/rustc" && \
+            -r "${dist_dir}/rustc-${target}-src.tar.gz" && \
+            "${install_dir}/${target}/bin/rustc" -nt \
+            "${dist_dir}/rustc-${target}-src.tar.gz" ]]; then
+            log "task finished successfully: keeping build.log -> build-good.log"
+            exec cp -f "${install_dir}/${target}/build.log" "${install_dir}/${target}/build-good.log"
+        else
+            log "task not finished: see build.log for detail"
+            exit 1
+        fi
+    fi
+    ;;
+test)	# invoke rustbuild for testing
+    exec env RUST_BACKTRACE=0 "${build_rust}" "${target}" rustbuild test --jobs=${MAKE_JOBS} "$@"
+    ;;
+buildbot)	# build and test
+    if [[ -r "${build_dir}/lock" ]]; then
+        log "already running: $(cat ${build_dir}/lock)"
+        exit 1
+    fi
+    echo "started building ${target} at $(date) with pid $$" > "${build_dir}/lock"
+    trap "rm -f -- '${build_dir}/lock'" EXIT ERR 1 2 3 13 15
+
+    "${build_rust}" "${target}" configure
+    "${build_rust}" "${target}"
+    test -r "${install_dir}/${target}/test.log" && \
+        mv "${install_dir}/${target}/test.log" "${install_dir}/${target}/test-prev.log"
+    "${build_rust}" "${target}" clean-all
+    exit 0
+    ;;
+buildbot-show)	# show summary of failures
+    ls -l "${install_dir}/${target}/test.log"
+    echo ''
+    echo 'Summary:'
+    sed -ne '/^failures:$/,/^test result: FAILED/p' "${install_dir}/${target}/test.log" \
+        | grep  -e '^    \[' \
+            -e '^    [^ ]*$' \
+            -e '^    [^ ].*(line ' \
+            -e 'FAILED'
+    ;;
+run-rustc)
+    if [[ ! -x "${install_dir}/${target}/bin/rustc" ]]; then
+        echo "error: missing rustc-${target}" >&2
+        exit 1
+    fi
+    exec env PATH="${install_dir}/${target}/bin:${PATH}" \
+        "${install_dir}/${target}/bin/rustc" "${@}"
+    ;;
+run-cargo)
+    if [[ ! -x "${install_dir}/${target}/bin/cargo" ]]; then
+        echo "error: missing cargo-${target}" >&2
+        exit 1
+    fi
+    exec env PATH="${install_dir}/${target}/bin:${PATH}" \
+        RUSTC="${install_dir}/${target}/bin/rustc" \
+        "${install_dir}/${target}/bin/cargo" "${@}"
+    ;;
+*)
+    echo "error: unknown command: see $0 help"
+    exit 1
+    ;;
+esac
