@@ -1,4 +1,4 @@
-name: Build shadowsocks-rust on OpenBSD with rsync
+name: Build shadowsocks-rust on OpenBSD
 
 on:
   push:
@@ -60,10 +60,11 @@ jobs:
         run: |
           mkdir -p ./artifacts
           rsync -avz --progress ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
-            /home/user/shadowsocks-rust/target/release/sslocal \
-            /home/user/shadowsocks-rust/target/release/ssserver \
-            /home/user/shadowsocks-rust/target/release/ssmanager \
-            /home/user/shadowsocks-rust/target/release/ssurl \
+            /root/shadowsocks-rust/target/release/sslocal \
+            /root/shadowsocks-rust/target/release/ssserver \
+            /root/shadowsocks-rust/target/release/ssmanager \
+            /root/shadowsocks-rust/target/release/ssurl \
+            /root/shadowsocks-rust/target/release/ssservice \
             ./artifacts/
         shell: bash
 
@@ -76,3 +77,4 @@ jobs:
             artifacts/ssserver
             artifacts/ssmanager
             artifacts/ssurl
+            artifacts/ssservice
