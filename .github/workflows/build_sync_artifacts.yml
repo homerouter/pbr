@@ -45,14 +45,16 @@ jobs:
           cd shadowsocks-rust
           cargo build --release
 
-      - name: Debug build output
+      - name: Copy binaries to temporary directory
         shell: openbsd {0}
         run: |
-          echo "Current directory: $PWD"
-          echo "Home directory: $HOME"
-          find $HOME -name target -type d 2>/dev/null || echo "No target directory found"
-          ls -l $HOME/shadowsocks-rust/target/release 2>/dev/null || echo "Release directory not found"
-          ls -l $HOME/shadowsocks-rust/target/release/ss* 2>/dev/null || echo "No ss* binaries found"
+          mkdir -p /tmp/artifacts
+          cp /root/shadowsocks-rust/target/release/sslocal /tmp/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssserver /tmp/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssmanager /tmp/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssurl /tmp/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssservice /tmp/artifacts/
+          ls -l /tmp/artifacts
         env:
           SUDO: doas
 
@@ -60,11 +62,11 @@ jobs:
         run: |
           mkdir -p ./artifacts
           rsync -avz --progress ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
-            /root/shadowsocks-rust/target/release/sslocal \
-            /root/shadowsocks-rust/target/release/ssserver \
-            /root/shadowsocks-rust/target/release/ssmanager \
-            /root/shadowsocks-rust/target/release/ssurl \
-            /root/shadowsocks-rust/target/release/ssservice \
+            /tmp/artifacts/sslocal \
+            /tmp/artifacts/ssserver \
+            /tmp/artifacts/ssmanager \
+            /tmp/artifacts/ssurl \
+            /tmp/artifacts/ssservice \
             ./artifacts/
         shell: bash
 
