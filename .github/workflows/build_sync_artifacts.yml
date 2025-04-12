@@ -1,4 +1,4 @@
-name: Build shadowsocks-rust on OpenBSD
+name: Build shadowsocks-rust on OpenBSD with rsync
 
 on:
   push:
@@ -44,6 +44,17 @@ jobs:
         run: |
           cd shadowsocks-rust
           cargo build --release
+
+      - name: Debug build output
+        shell: openbsd {0}
+        run: |
+          echo "Current directory: $PWD"
+          echo "Home directory: $HOME"
+          find $HOME -name target -type d 2>/dev/null || echo "No target directory found"
+          ls -l $HOME/shadowsocks-rust/target/release 2>/dev/null || echo "Release directory not found"
+          ls -l $HOME/shadowsocks-rust/target/release/ss* 2>/dev/null || echo "No ss* binaries found"
+        env:
+          SUDO: doas
 
       - name: Copy binaries from OpenBSD VM to host
         run: |
