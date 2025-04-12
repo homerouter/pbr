@@ -48,14 +48,13 @@ jobs:
       - name: Copy binaries from OpenBSD VM to host
         run: |
           mkdir -p ./artifacts
-          rsync -avz --progress "${{ steps.openbsd-vm.outputs.rsync-ssh-opts }}" \
+          rsync -avz --progress ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
             /home/user/shadowsocks-rust/target/release/sslocal \
             /home/user/shadowsocks-rust/target/release/ssserver \
             /home/user/shadowsocks-rust/target/release/ssmanager \
             /home/user/shadowsocks-rust/target/release/ssurl \
             ./artifacts/
-        env:
-          SUDO: doas
+        shell: bash
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
