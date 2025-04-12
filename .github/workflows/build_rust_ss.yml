@@ -21,7 +21,7 @@ jobs:
           sync: rsync
           prepare: |
             pkg_add -u
-            pkg_add python-3.11 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
+            pkg_add python3 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
           envs: 'HOME PATH'
 
       - name: Verify Rust Installation
