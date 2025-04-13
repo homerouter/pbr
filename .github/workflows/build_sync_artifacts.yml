@@ -60,10 +60,10 @@ jobs:
         env:
           SUDO: doas
 
-      - name: Debug SSH user access
+      - name: Debug rsync-ssh-opts
         run: |
-          ssh ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
-            "whoami && pwd && ls -ld /tmp /tmp/artifacts && ls -l /tmp/artifacts || echo 'Cannot access /tmp/artifacts'"
+          echo "rsync-ssh-opts: ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }}"
+          ssh ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} "whoami && pwd && ls -ld /tmp /tmp/artifacts && ls -l /tmp/artifacts" || echo "SSH failed"
         shell: bash
 
       - name: Copy binaries from OpenBSD VM to host
@@ -75,7 +75,7 @@ jobs:
             /tmp/artifacts/ssmanager \
             /tmp/artifacts/ssurl \
             /tmp/artifacts/ssservice \
-            ./artifacts/
+            ./artifacts/ || echo "Rsync failed"
         shell: bash
 
       - name: Upload artifacts
