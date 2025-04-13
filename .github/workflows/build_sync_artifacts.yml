@@ -18,7 +18,7 @@ jobs:
           release: "7.6"
           arch: "amd64"
           usesh: true
-          sync: rsync
+          sync: nfs  # Changed from rsync to nfs
           prepare: |
             pkg_add -u
             pkg_add python3 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
@@ -45,46 +45,21 @@ jobs:
           cd shadowsocks-rust
           cargo build --release
 
-      - name: Copy binaries to temporary directory
+      - name: Copy binaries to workspace
         shell: openbsd {0}
         run: |
-          mkdir -p /tmp/artifacts
-          cp /root/shadowsocks-rust/target/release/sslocal /tmp/artifacts/
-          cp /root/shadowsocks-rust/target/release/ssserver /tmp/artifacts/
-          cp /root/shadowsocks-rust/target/release/ssmanager /tmp/artifacts/
-          cp /root/shadowsocks-rust/target/release/ssurl /tmp/artifacts/
-          cp /root/shadowsocks-rust/target/release/ssservice /tmp/artifacts/
-          chmod -R 755 /tmp/artifacts
-          ls -ld /tmp /tmp/artifacts
-          ls -l /tmp/artifacts
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp /root/shadowsocks-rust/target/release/sslocal $GITHUB_WORKSPACE/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssserver $GITHUB_WORKSPACE/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssmanager $GITHUB_WORKSPACE/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssurl $GITHUB_WORKSPACE/artifacts/
+          cp /root/shadowsocks-rust/target/release/ssservice $GITHUB_WORKSPACE/artifacts/
+          ls -l $GITHUB_WORKSPACE/artifacts
         env:
           SUDO: doas
-
-      - name: Debug rsync-ssh-opts
-        run: |
-          echo "rsync-ssh-opts: ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }}"
-          ssh ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} "whoami && pwd && ls -ld /tmp /tmp/artifacts && ls -l /tmp/artifacts" || echo "SSH failed"
-        shell: bash
-
-      - name: Copy binaries from OpenBSD VM to host
-        run: |
-          mkdir -p ./artifacts
-          rsync -avz --progress ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
-            /tmp/artifacts/sslocal \
-            /tmp/artifacts/ssserver \
-            /tmp/artifacts/ssmanager \
-            /tmp/artifacts/ssurl \
-            /tmp/artifacts/ssservice \
-            ./artifacts/ || echo "Rsync failed"
-        shell: bash
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: shadowsocks-rust-binaries
-          path: |
-            artifacts/sslocal
-            artifacts/ssserver
-            artifacts/ssmanager
-            artifacts/ssurl
-            artifacts/ssservice
+          path: ${{ github.workspace }}/artifacts/*
