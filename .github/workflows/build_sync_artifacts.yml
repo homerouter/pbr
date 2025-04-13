@@ -54,9 +54,17 @@ jobs:
           cp /root/shadowsocks-rust/target/release/ssmanager /tmp/artifacts/
           cp /root/shadowsocks-rust/target/release/ssurl /tmp/artifacts/
           cp /root/shadowsocks-rust/target/release/ssservice /tmp/artifacts/
+          chmod -R 755 /tmp/artifacts
+          ls -ld /tmp /tmp/artifacts
           ls -l /tmp/artifacts
         env:
           SUDO: doas
+
+      - name: Debug SSH user access
+        run: |
+          ssh ${{ steps.openbsd-vm.outputs.rsync-ssh-opts }} \
+            "whoami && pwd && ls -ld /tmp /tmp/artifacts && ls -l /tmp/artifacts || echo 'Cannot access /tmp/artifacts'"
+        shell: bash
 
       - name: Copy binaries from OpenBSD VM to host
         run: |
