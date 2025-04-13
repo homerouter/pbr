@@ -1,0 +1,66 @@
+name: Build shadowsocks-rust ssserver on OpenBSD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build shadowsocks-rust ssserver
+    steps:
+      - name: Start OpenBSD VM
+        id: openbsd-vm
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "7.6"
+          arch: "amd64"
+          usesh: true
+          sync: nfs
+          prepare: |
+            pkg_add -u
+            pkg_add python3 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
+          envs: 'HOME PATH'
+
+      - name: Verify Rust Installation
+        shell: openbsd {0}
+        run: |
+          rustc --version
+          cargo --version
+        env:
+          SUDO: doas
+
+      - name: Clone shadowsocks-rust
+        shell: openbsd {0}
+        run: |
+          git clone https://github.com/shadowsocks/shadowsocks-rust.git
+          cd shadowsocks-rust
+          git checkout v1.21.0
+
+      - name: Build ssserver with stream-cipher feature
+        shell: openbsd {0}
+        run: |
+          cd shadowsocks-rust
+          cargo build --release --bin ssserver --features stream-cipher
+        env:
+          SUDO: doas
+
+      - name: Copy and strip ssserver to workspace
+        shell: openbsd {0}
+        run: |
+          mkdir -p /tmp/artifacts
+          cp /root/shadowsocks-rust/target/release/ssserver /tmp/artifacts/
+          strip --strip-unneeded /tmp/artifacts/ssserver
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp /tmp/artifacts/ssserver $GITHUB_WORKSPACE/artifacts/
+          ls -l $GITHUB_WORKSPACE/artifacts
+        env:
+          SUDO: doas
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowsocks-rust-ssserver
+          path: ${{ github.workspace }}/artifacts/ssserver
