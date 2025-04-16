@@ -29,13 +29,14 @@ jobs:
         run: |
           git clone https://github.com/semarie/build-rust.git
           cd build-rust
-          ls -l  # Debug: List files to verify build-rust script exists
-          chmod +x build.sh # Ensure script is executable
+          ls -l  # Debug: List files to verify build.sh exists
+          chmod +x build.sh  # Ensure script is executable
           echo "SUDO=doas" > ~/.build_rust.conf
           echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist/2024-12-05\"" >> ~/.build_rust.conf
           echo "rust_base_dir=/usr/local" >> ~/.build_rust.conf
-          ./build.sh stable || { echo "Failed to run build-rust"; exit 1; }
-          echo "PATH=$HOME/build-rust/install_dir/stable/bin:$PATH" >> $GITHUB_ENV
+          ./build.sh init || { echo "Failed to run build.sh init"; exit 1; }
+          ./build.sh beta || { echo "Failed to run build.sh beta"; exit 1; }
+          echo "PATH=$HOME/build-rust/install_dir/beta/bin:$PATH" >> $GITHUB_ENV
         env:
           SUDO: doas
 
