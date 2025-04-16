@@ -22,6 +22,8 @@ jobs:
           prepare: |
             pkg_add -u
             pkg_add python gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
+            echo "permit nopass root" > /etc/doas.conf
+            doas -C /etc/doas.conf && echo "doas configured successfully"
           envs: 'HOME PATH'
 
       - name: Install Rust 1.85
