@@ -21,8 +21,8 @@ jobs:
           sync: nfs
           prepare: |
             export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
-            pkg_add -u
-            pkg_add python-3.11 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
+            
+            pkg_add python gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
             python3 --version  # Debug: Verify python3 version
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
