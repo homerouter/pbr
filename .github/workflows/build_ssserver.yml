@@ -21,7 +21,7 @@ jobs:
           sync: nfs
           prepare: |
             pkg_add -u
-            pkg_add python3 gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
+            pkg_add python gmake git curl cmake bash ggrep gdb libffi ccache ninja rust
           envs: 'HOME PATH'
 
       - name: Verify Rust Installation
@@ -37,7 +37,7 @@ jobs:
         run: |
           git clone https://github.com/shadowsocks/shadowsocks-rust.git
           cd shadowsocks-rust
-          git checkout v1.22.0
+          git checkout v1.21.0
 
       - name: Build ssserver with stream-cipher feature
         shell: openbsd {0}
