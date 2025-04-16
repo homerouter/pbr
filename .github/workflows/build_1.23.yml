@@ -1,10 +1,7 @@
 name: Build shadowsocks-rust ssserver on OpenBSD
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,16 +18,13 @@ jobs:
           sync: nfs
           prepare: |
             export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
-            pkg_add -u
             pkg_add python py3-pip gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
-            ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3  # Ensure python3 points to python3.11
-            ln -sf /usr/local/bin/python3 /usr/local/bin/python  # Ensure python points to python3
             python3 --version  # Debug: Verify python3 version
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
           envs: 'HOME PATH'
 
-      - name: Install Rust 1.85
+      - name: Install Rust Beta
         shell: openbsd {0}
         run: |
           git clone https://github.com/semarie/build-rust.git
@@ -44,8 +38,6 @@ jobs:
           python3 --version  # Debug: Confirm python3 version
           which python3  # Debug: Confirm python3 path
           echo $PATH  # Debug: Show PATH
-          # Patch build.sh to hardcode python3 path
-          sed -i '' 's|command -v python3|/usr/local/bin/python3|g' build.sh
           # Pre-download tarball
           mkdir -p distfiles
           curl -L -o distfiles/rustc-beta-src.tar.gz "https://static.rust-lang.org/dist/2024-12-26/rustc-beta-src.tar.gz" || { echo "Failed to download tarball"; exit 1; }
