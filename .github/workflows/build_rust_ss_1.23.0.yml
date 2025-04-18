@@ -30,7 +30,7 @@ jobs:
             doas -C /etc/doas.conf && echo "doas configured successfully"
           envs: 'HOME PATH'
 
-      - name: Install Rust 1.85
+      - name: Install Rust 1.85 (Beta)
         shell: openbsd {0}
         run: |
           git clone https://github.com/semarie/build-rust.git
@@ -38,7 +38,7 @@ jobs:
           ls -l  # Debug: List files to verify build.sh exists
           chmod +x build.sh  # Ensure script is executable
           echo "SUDO=doas" > ~/.build_rust.conf
-          echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist\"" >> ~/.build_rust.conf
+          echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist/2024-12-05\"" >> ~/.build_rust.conf
           echo "rust_base_dir=/usr/local" >> ~/.build_rust.conf
           doas true  # Debug: Test doas
           python3 --version  # Debug: Confirm python3 version
@@ -46,30 +46,33 @@ jobs:
           echo $PATH  # Debug: Show PATH
           rustc --version  # Debug: Show bootstrap Rust version
           # Verify tarball URL
-          curl -I "https://static.rust-lang.org/dist/rustc-1.85.0-src.tar.gz" 2>&1 | tee curl_headers.log || echo "Warning: Tarball URL check failed"
+          curl -I "https://static.rust-lang.org/dist/2024-12-05/rustc-beta-src.tar.gz" 2>&1 | tee curl_headers.log || echo "Warning: Tarball URL check failed"
           grep "HTTP/2 200" curl_headers.log || { echo "Tarball URL not valid"; exit 1; }
           # Pre-download tarball
           mkdir -p distfiles
-          curl -L -o distfiles/rustc-1.85.0-src.tar.gz "https://static.rust-lang.org/dist/rustc-1.85.0-src.tar.gz" 2>&1 | tee curl_download.log || { echo "Failed to download tarball"; cat curl_download.log; exit 1; }
+          curl -L -o distfiles/rustc-beta-src.tar.gz "https://static.rust-lang.org/dist/2024-12-05/rustc-beta-src.tar.gz" 2>&1 | tee curl_download.log || { echo "Failed to download tarball"; cat curl_download.log; exit 1; }
           ls -l distfiles/  # Debug: Verify tarball size
           # Verify tarball size (>100 MB)
-          size=$(stat -f %z distfiles/rustc-1.85.0-src.tar.gz)
+          size=$(stat -f %z distfiles/rustc-beta-src.tar.gz)
           if [ $size -lt 100000000 ]; then
             echo "Error: Tarball size too small ($size bytes)"
             cat curl_download.log
             exit 1
           fi
-          
-          # Patch build.sh to use pre-downloaded tarball and stable channel
+          # Verify tarball checksum (sha256sum, placeholder; update after manual check)
+          echo "placeholder_sha256  distfiles/rustc-beta-src.tar.gz" | sha256sum -c || { echo "Tarball checksum failed; update SHA256"; exit 1; }
+          # Patch build.sh to use pre-downloaded tarball and skip pkg_add python3
           sed -i '' '/fetch_distfiles()/a\
-            if [ -f distfiles/rustc-1.85.0-src.tar.gz ]; then echo "Using pre-downloaded rustc-1.85.0-src.tar.gz"; return; fi' build.sh
-          sed -i '' 's/channel="beta"/channel="stable"/' build.sh
+            if [ -f distfiles/rustc-beta-src.tar.gz ]; then echo "Using pre-downloaded rustc-beta-src.tar.gz"; return; fi' build.sh
+          sed -i '' '/pkg_add -aU python3/s/^/#/' build.sh
           # Debug: Verify patches
           grep "Using pre-downloaded" build.sh
-          grep "channel=\"stable\"" build.sh
+          grep "#.*pkg_add -aU python3" build.sh
+          # Debug: Check Python detection
+          command -v python3 || { echo "Python3 not found in PATH"; exit 1; }
           bash -x ./build.sh init 2>&1 | tee build-init.log || { echo "Failed to run build.sh init"; cat build-init.log; exit 1; }
-          bash -x ./build.sh stable 2>&1 | tee build-stable.log || { echo "Failed to run build.sh stable"; cat build-stable.log build_dir/build.log || echo "build.log not found"; exit 1; }
-          echo "PATH=$HOME/build-rust/install_dir/stable/bin:$PATH" >> $GITHUB_ENV
+          bash -x ./build.sh beta 2>&1 | tee build-beta.log || { echo "Failed to run build.sh beta"; cat build-beta.log build_dir/build.log || echo "build.log not found"; exit 1; }
+          echo "PATH=$HOME/build-rust/install_dir/beta/bin:$PATH" >> $GITHUB_ENV
         env:
           SUDO: doas
           PYTHON: /usr/local/bin/python3
