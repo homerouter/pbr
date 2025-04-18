@@ -22,9 +22,8 @@ jobs:
           prepare: |
             export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
             pkg_add -u
-            pkg_add python py3-pip gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
-            python3 -m ensurepip  # Ensure pip is set up
-            python3 -m pip install setuptools  # Install common Rust Python dependency
+            pkg_add python-3.11 py3-setuptools gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
+            ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3  # Ensure python3 points to python3.11
             python3 --version  # Debug: Verify python3 version
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
@@ -55,8 +54,13 @@ jobs:
             echo "Error: Tarball size too small ($size bytes)"
             exit 1
           fi
-          ./build.sh init 2>&1 | tee build-init.log || { echo "Failed to run build.sh init"; cat build-init.log; exit 1; }
-          ./build.sh beta 2>&1 | tee build-beta.log || { echo "Failed to run build.sh beta"; cat build-beta.log build_dir/build.log || echo "build.log not found"; exit 1; }
+          # Patch build.sh to use pre-downloaded tarball
+          sed -i '' '/fetch_distfiles()/a\
+            if [ -f distfiles/rustc-beta-src.tar.gz ]; then echo "Using pre-downloaded rustc-beta-src.tar.gz"; return; fi' build.sh
+          # Debug: Verify patch
+          grep "Using pre-downloaded" build.sh
+          bash -x ./build.sh init 2>&1 | tee build-init.log || { echo "Failed to run build.sh init"; cat build-init.log; exit 1; }
+          bash -x ./build.sh beta 2>&1 | tee build-beta.log || { echo "Failed to run build.sh beta"; cat build-beta.log build_dir/build.log || echo "build.log not found"; exit 1; }
           echo "PATH=$HOME/build-rust/install_dir/beta/bin:$PATH" >> $GITHUB_ENV
         env:
           SUDO: doas
