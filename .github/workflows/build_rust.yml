@@ -1,0 +1,82 @@
+name: Build OpenBSD Rust 1.86.0 Port
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-openbsd-rust-port:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start OpenBSD VM
+        id: vm
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "7.6"
+          sync: nfs
+          prepare: |
+            pkg_add -u
+            pkg_add git gmake
+
+      - name: Install ports tree
+        shell: openbsd {0}
+        run: |
+          echo "Verifying execution inside OpenBSD VM"
+          uname -a
+          whoami
+          echo "Starting ports tree installation"
+          ping -c 4 cdn.openbsd.org || (echo "Network unreachable" && exit 1)
+          curl -L -o /tmp/ports.tar.gz https://cdn.openbsd.org/pub/OpenBSD/7.6/ports.tar.gz || (echo "Failed to download ports.tar.gz" && exit 1)
+          ls -lh /tmp/ports.tar.gz
+          tar -tzf /tmp/ports.tar.gz | grep infrastructure/mk/bsd.port.mk || (echo "bsd.port.mk not in tarball" && exit 1)
+          tar -xzvf /tmp/ports.tar.gz -C /usr/ || (echo "Failed to extract ports.tar.gz" && exit 1)
+          rm /tmp/ports.tar.gz
+          ls -l /usr/ports/infrastructure/mk/bsd.port.mk || (echo "bsd.port.mk not found" && exit 1)
+          echo "Ports tree installed successfully"
+
+      - name: Copy rust port files and generate distinfo
+        shell: openbsd {0}
+        run: |
+          echo "Copying port files for lang/rust"
+          git clone https://github.com/openbsd/ports
+
+      - name: Build and package rust with debug output
+        shell: openbsd {0}
+        run: |
+          echo "Starting build for lang/rust"
+          cd ports/lang/rust
+          ls -l ports/infrastructure/mk/bsd.port.mk || (echo "bsd.port.mk missing before make" && exit 1)
+          ls -l distinfo || (echo "distinfo missing" && exit 1)
+          make -d A NO_DEPENDS=1 fetch > fetch_debug.txt 2>&1 || (cat fetch_debug.txt && exit 1)
+          make NO_DEPENDS=1 patch
+          make NO_DEPENDS=1
+          make NO_DEPENDS=1 install
+          make NO_DEPENDS=1 package
+          ls -lh ports/packages/$(uname -m)/all/
+          echo "Copying artifacts to host workspace"
+          mkdir -p $GITHUB_WORKSPACE/artifacts/lang-rust
+          cp fetch_debug.txt $GITHUB_WORKSPACE/artifacts/lang-rust/
+          cp Makefile_debug.txt $GITHUB_WORKSPACE/artifacts/lang-rust/
+          cp distinfo $GITHUB_WORKSPACE/artifacts/lang-rust/
+          cp ports/packages/amd64/all/*.tgz $GITHUB_WORKSPACE/artifacts/lang-rust/
+          echo "Build completed for lang/rust"
+
+      - name: Set artifact name
+        id: set_artifact_name
+        run: |
+          ARTIFACT_NAME=lang-rust-package
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set_artifact_name.outputs.ARTIFACT_NAME }}
+          path: ${{ github.workspace }}/artifacts/lang-rust/*.tgz
