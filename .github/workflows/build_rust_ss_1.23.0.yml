@@ -1,4 +1,4 @@
-name: Build shadowsocks-rust ssserver on OpenBSD
+name: Build shadowsocks-rust ssserver 1.23.0 on OpenBSD
 
 on:
   push:
