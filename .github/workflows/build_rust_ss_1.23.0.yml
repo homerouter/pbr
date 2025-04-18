@@ -20,9 +20,9 @@ jobs:
           usesh: true
           sync: nfs
           prepare: |
-            export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
-            pkg_add -u
-            pkg_add python-3.11 py3-setuptools gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish
+            export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/:https://ftp.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
+            pkg_add -u 2>&1 | tee pkg_add_update.log || { echo "Failed to update package index"; cat pkg_add_update.log; exit 1; }
+            pkg_add python py3-setuptools gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish 2>&1 | tee pkg_add_install.log || { echo "Failed to install packages"; cat pkg_add_install.log; pkg_info -Q python; exit 1; }
             ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3  # Ensure python3 points to python3.11
             python3 --version  # Debug: Verify python3 version
             echo "permit nopass root" > /etc/doas.conf
