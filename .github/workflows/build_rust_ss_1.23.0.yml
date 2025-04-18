@@ -93,10 +93,6 @@ jobs:
             cat curl_download.log
             exit 1
           fi
-          # Compute checksum
-          CHECKSUM=$(/usr/local/bin/sha256 -h "$TARBALL_FILE" | cut -d' ' -f4)
-          echo "Computed checksum: $CHECKSUM"
-          echo "$CHECKSUM  $TARBALL_FILE" | /usr/local/bin/sha256 -c || { echo "Tarball checksum verification failed"; exit 1; }
           # Clone build-rust
           git clone https://github.com/semarie/build-rust.git
           cd build-rust
