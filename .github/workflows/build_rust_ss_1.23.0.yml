@@ -29,7 +29,6 @@ jobs:
             ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
             python3 --version
             rustc --version
-            ksh --version
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
             df -h  # Debug: Check disk space
