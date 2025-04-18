@@ -108,7 +108,7 @@ jobs:
           # Patch build.sh
           sed -i '' '/fetch_distfiles()/a\
             if [ -f "../$TARBALL_FILE" ]; then echo "Using pre-downloaded $TARBALL_FILE"; cp "../$TARBALL_FILE" distfiles/; return; fi' build.sh
-          sed -i '' '/pkg_add -aU python3/s/^/#/' build.sh
+          sed -i '' '/pkg_add -aU python/s/^/#/' build.sh
           if [ "$TARGET" = "stable" ]; then
             sed -i '' 's/ beta|nightly)/ beta|nightly|stable)/' build.sh
             sed -i '' 's/channel="beta"/channel="stable"/' build.sh
