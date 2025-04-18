@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Build shadowsocks-rust ssserver
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Start OpenBSD VM
         id: openbsd-vm
         uses: vmactions/openbsd-vm@v1
@@ -22,57 +25,106 @@ jobs:
           prepare: |
             export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/:https://ftp.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
             pkg_add -u 2>&1 | tee pkg_add_update.log || { echo "Failed to update package index"; cat pkg_add_update.log; exit 1; }
-            pkg_add python py3-setuptools py3-requests gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish 2>&1 | tee pkg_add_install.log || { echo "Failed to install packages"; cat pkg_add_install.log; pkg_info -Q rust; exit 1; }
-            ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3  # Ensure python3 points to python3.11
-            python3 --version  # Debug: Verify python3 version
-            rustc --version  # Debug: Verify rust version
+            pkg_add python py3-setuptools py3-requests gmake git curl cmake bash ggrep gdb libffi ccache ninja rust fish ksh 2>&1 | tee pkg_add_install.log || { echo "Failed to install packages"; cat pkg_add_install.log; pkg_info -Q rust; exit 1; }
+            ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
+            python3 --version
+            rustc --version
+            ksh --version
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
+            df -h  # Debug: Check disk space
           envs: 'HOME PATH'
 
       - name: Install Rust 1.85 (Beta)
         shell: openbsd {0}
         run: |
-          git clone https://github.com/semarie/build-rust.git
-          cd build-rust
-          ls -l  # Debug: List files to verify build.sh exists
-          chmod +x build.sh  # Ensure script is executable
-          echo "SUDO=doas" > ~/.build_rust.conf
-          echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist/2024-12-05\"" >> ~/.build_rust.conf
-          echo "rust_base_dir=/usr/local" >> ~/.build_rust.conf
-          doas true  # Debug: Test doas
-          python3 --version  # Debug: Confirm python3 version
-          which python3  # Debug: Confirm python3 path
-          echo $PATH  # Debug: Show PATH
-          rustc --version  # Debug: Show bootstrap Rust version
-          # Verify tarball URL
-          curl -I "https://static.rust-lang.org/dist/2024-12-05/rustc-beta-src.tar.gz" 2>&1 | tee curl_headers.log || echo "Warning: Tarball URL check failed"
-          grep "HTTP/2 200" curl_headers.log || { echo "Tarball URL not valid"; exit 1; }
-          # Pre-download tarball
-          mkdir -p distfiles
-          curl -L -o distfiles/rustc-beta-src.tar.gz "https://static.rust-lang.org/dist/2024-12-05/rustc-beta-src.tar.gz" 2>&1 | tee curl_download.log || { echo "Failed to download tarball"; cat curl_download.log; exit 1; }
-          ls -l distfiles/  # Debug: Verify tarball size
+          # Check disk space
+          df -h
+          # Ensure find-rust-archives.sh is executable
+          ls -l find-rust-archives.sh
+          chmod +x find-rust-archives.sh
+          # Run script to find beta tarball for December 2024
+          ./find-rust-archives.sh 12 2024 1 beta > tarball_info.txt 2> find_rust_errors.log
+          cat tarball_info.txt
+          cat find_rust_errors.log
+          # Parse the latest valid tarball (prefer 1.85.0-beta.x)
+          TARBALL_URL=""
+          while IFS=', ' read -r version url; do
+            if [[ "$version" == 1.85.0-beta* ]]; then
+              TARBALL_URL="$url/rustc-beta-src.tar.gz"
+              TARBALL_DATE="${url##*/}"
+              break
+            elif [[ "$version" == 1.86.0-beta* && -z "$TARBALL_URL" ]]; then
+              TARBALL_URL="$url/rustc-beta-src.tar.gz"
+              TARBALL_DATE="${url##*/}"
+            fi
+          done < tarball_info.txt
+          # Clean up to save disk space
+          rm -rf /tmp/build-rust-archives
+          df -h
+          # Check if a beta tarball was found
+          if [ -n "$TARBALL_URL" ]; then
+            echo "Using beta tarball: $TARBALL_URL"
+            TARBALL_FILE="distfiles/rustc-beta-src.tar.gz"
+            curl -I --retry 3 --retry-delay 5 "$TARBALL_URL" 2>&1 | tee curl_headers.log || echo "Warning: Beta tarball URL check failed"
+            grep "HTTP/2 200" curl_headers.log || { echo "Beta tarball URL not valid"; exit 1; }
+            mkdir -p distfiles
+            curl -L --retry 3 --retry-delay 5 -o "$TARBALL_FILE" "$TARBALL_URL" 2>&1 | tee curl_download.log || { echo "Failed to download beta tarball"; cat curl_download.log; exit 1; }
+            TARGET="beta"
+            echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist/$TARBALL_DATE\"" > ~/.build_rust.conf
+          else
+            echo "No beta tarball found. Falling back to stable tarball."
+            TARBALL_URL="https://static.rust-lang.org/dist/rustc-1.85.0-src.tar.gz"
+            TARBALL_FILE="distfiles/rustc-1.85.0-src.tar.gz"
+            curl -I --retry 3 --retry-delay 5 "$TARBALL_URL" 2>&1 | tee curl_headers.log || echo "Warning: Stable tarball URL check failed"
+            grep "HTTP/2 200" curl_headers.log || { echo "Stable tarball URL not valid"; exit 1; }
+            mkdir -p distfiles
+            curl -L --retry 3 --retry-delay 5 -o "$TARBALL_FILE" "$TARBALL_URL" 2>&1 | tee curl_download.log || { echo "Failed to download stable tarball"; cat curl_download.log; exit 1; }
+            TARGET="stable"
+            echo "distfiles_rustc_base=\"https://static.rust-lang.org/dist\"" > ~/.build_rust.conf
+          fi
+          ls -l distfiles/
           # Verify tarball size (>100 MB)
-          size=$(stat -f %z distfiles/rustc-beta-src.tar.gz)
+          size=$(stat -f %z "$TARBALL_FILE")
           if [ $size -lt 100000000 ]; then
             echo "Error: Tarball size too small ($size bytes)"
             cat curl_download.log
             exit 1
           fi
-          # Verify tarball checksum (sha256sum, placeholder; update after manual check)
-          echo "placeholder_sha256  distfiles/rustc-beta-src.tar.gz" | sha256sum -c || { echo "Tarball checksum failed; update SHA256"; exit 1; }
-          # Patch build.sh to use pre-downloaded tarball and skip pkg_add python3
+          # Compute checksum
+          CHECKSUM=$(/usr/local/bin/sha256 -h "$TARBALL_FILE" | cut -d' ' -f4)
+          echo "Computed checksum: $CHECKSUM"
+          echo "$CHECKSUM  $TARBALL_FILE" | /usr/local/bin/sha256 -c || { echo "Tarball checksum verification failed"; exit 1; }
+          # Clone build-rust
+          git clone https://github.com/semarie/build-rust.git
+          cd build-rust
+          ls -l
+          chmod +x build.sh
+          echo "SUDO=doas" >> ~/.build_rust.conf
+          echo "rust_base_dir=/usr/local" >> ~/.build_rust.conf
+          doas true
+          python3 --version
+          which python3
+          echo $PATH
+          rustc --version
+          # Patch build.sh
           sed -i '' '/fetch_distfiles()/a\
-            if [ -f distfiles/rustc-beta-src.tar.gz ]; then echo "Using pre-downloaded rustc-beta-src.tar.gz"; return; fi' build.sh
+            if [ -f "../$TARBALL_FILE" ]; then echo "Using pre-downloaded $TARBALL_FILE"; cp "../$TARBALL_FILE" distfiles/; return; fi' build.sh
           sed -i '' '/pkg_add -aU python3/s/^/#/' build.sh
-          # Debug: Verify patches
+          if [ "$TARGET" = "stable" ]; then
+            sed -i '' 's/ beta|nightly)/ beta|nightly|stable)/' build.sh
+            sed -i '' 's/channel="beta"/channel="stable"/' build.sh
+          fi
           grep "Using pre-downloaded" build.sh
           grep "#.*pkg_add -aU python3" build.sh
-          # Debug: Check Python detection
+          if [ "$TARGET" = "stable" ]; then
+            grep "beta|nightly|stable" build.sh
+            grep "channel=\"stable\"" build.sh
+          fi
           command -v python3 || { echo "Python3 not found in PATH"; exit 1; }
           bash -x ./build.sh init 2>&1 | tee build-init.log || { echo "Failed to run build.sh init"; cat build-init.log; exit 1; }
-          bash -x ./build.sh beta 2>&1 | tee build-beta.log || { echo "Failed to run build.sh beta"; cat build-beta.log build_dir/build.log || echo "build.log not found"; exit 1; }
-          echo "PATH=$HOME/build-rust/install_dir/beta/bin:$PATH" >> $GITHUB_ENV
+          bash -x ./build.sh "$TARGET" 2>&1 | tee build-"$TARGET".log || { echo "Failed to run build.sh $TARGET"; cat build-"$TARGET".log build_dir/build.log || echo "build.log not found"; exit 1; }
+          echo "PATH=$HOME/build-rust/install_dir/$TARGET/bin:$PATH" >> $GITHUB_ENV
         env:
           SUDO: doas
           PYTHON: /usr/local/bin/python3
