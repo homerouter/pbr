@@ -32,7 +32,7 @@ jobs:
             echo "permit nopass root" > /etc/doas.conf
             doas -C /etc/doas.conf && echo "doas configured successfully"
             df -h  # Debug: Check disk space
-            git clone https://github.com/homerouter/pbr
+           
           envs: 'HOME PATH'
 
       - name: Install Rust 1.85 (Beta)
@@ -41,6 +41,7 @@ jobs:
           # Check disk space
           df -h
           # Ensure find-rust-archives.sh is executable
+          git clone https://github.com/homerouter/pbr
           cd prb
           ls -l find-rust-archives.sh
           chmod +x find-rust-archives.sh
