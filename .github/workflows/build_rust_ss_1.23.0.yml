@@ -22,7 +22,7 @@ jobs:
           prepare: |
             export PKG_PATH=https://ftp.eu.openbsd.org/pub/OpenBSD/7.6/packages/amd64/:https://ftp.openbsd.org/pub/OpenBSD/7.6/packages/amd64/
             pkg_add -u 2>&1 | tee pkg_add_update.log || { echo "Failed to update package index"; cat pkg_add_update.log; exit 1; }
-            pkg_add python py3-setuptools py3-requests gmake git curl cmake bash ggrep gdb libffi ccache ninja rust-1.85.0p1 fish 2>&1 | tee pkg_add_install.log || { echo "Failed to install packages"; cat pkg_add_install.log; pkg_info -Q rust; exit 1; }
+            pkg_add python py3-setuptools py3-requests gmake git curl cmake bash ggrep gdb libffi ccache ninja  fish 2>&1 | tee pkg_add_install.log || { echo "Failed to install packages"; cat pkg_add_install.log; pkg_info -Q rust; exit 1; }
             ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3  # Ensure python3 points to python3.11
             python3 --version  # Debug: Verify python3 version
             rustc --version  # Debug: Verify rust version
