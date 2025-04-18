@@ -46,7 +46,7 @@ jobs:
           ls -l find-rust-archives.sh
           chmod +x find-rust-archives.sh
           # Run script to find beta tarball for December 2024
-          ./find-rust-archives.sh 12 2024 1 beta > tarball_info.txt 2> find_rust_errors.log
+          ./find-rust-archives.sh 04 2025 1 beta > tarball_info.txt 2> find_rust_errors.log
           cat tarball_info.txt
           cat find_rust_errors.log
           # Parse the latest valid tarball (prefer 1.85.0-beta.x)
