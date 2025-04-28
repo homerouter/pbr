@@ -43,7 +43,7 @@ jobs:
         shell: openbsd {0}
         run: |
           cd shadowsocks-rust
-          cargo build --release --bin ssserver --no-default-features --features stream-cipher
+          cargo build --release --bin ssserver --no-default-features --features server stream-cipher
         env:
           SUDO: doas
 
