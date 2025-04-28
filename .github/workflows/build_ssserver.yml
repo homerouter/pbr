@@ -1,4 +1,4 @@
-name: Build shadowsocks-rust ssserver 1.21 on OpenBSD
+name: Build shadowsocks-rust ssserver on OpenBSD
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
         id: openbsd-vm
         uses: vmactions/openbsd-vm@v1
         with:
-          release: "7.6"
+          release: "7.7"
           arch: "amd64"
           usesh: true
           sync: nfs
@@ -37,7 +37,7 @@ jobs:
         run: |
           git clone https://github.com/shadowsocks/shadowsocks-rust.git
           cd shadowsocks-rust
-          git checkout v1.21.0
+          git checkout v1.23.1
 
       - name: Build ssserver with stream-cipher feature
         shell: openbsd {0}
