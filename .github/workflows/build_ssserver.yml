@@ -37,7 +37,7 @@ jobs:
         run: |
           git clone https://github.com/shadowsocks/shadowsocks-rust.git
           cd shadowsocks-rust
-          git checkout v1.23.3
+          git checkout v1.23.4
 
       - name: Build ssserver with stream-cipher feature
         shell: openbsd {0}
