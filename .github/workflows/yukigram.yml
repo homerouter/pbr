@@ -24,7 +24,7 @@ jobs:
 
     # Install CMake
     - name: Install CMake
-      uses: lukka/get-cmake@v2
+      uses: actions/setup-cmake@v1
       with:
         cmake-version: '3.28'  # Use a version compatible with Yukigram (3.21+)
 
@@ -59,4 +59,3 @@ jobs:
       with:
         name: yukigram-executable
         path: ${{ github.workspace }}/build/Release/yukigram.exe
-      
