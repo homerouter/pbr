@@ -24,7 +24,7 @@ jobs:
 
     # Install CMake
     - name: Install CMake
-      uses: actions/setup-cmake@v1
+      uses: actions/setup-cmake@v2
       with:
         cmake-version: '3.28'  # Use a version compatible with Yukigram (3.21+)
 
